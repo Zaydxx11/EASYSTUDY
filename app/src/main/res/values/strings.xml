@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">EasyStudy</string>
+    <string name="welcome_title">Your AI Study Companion</string>
+    <string name="welcome_subtitle">Study smarter. Understand faster. Achieve more.</string>
+</resources>
