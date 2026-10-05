@@ -165,6 +165,7 @@ fun MainScreen(viewModel: StudyViewModel) {
                 StudySubScreen.QUIZ -> QuizScreen(viewModel = viewModel, onBack = { viewModel.closeSubScreen() })
                 StudySubScreen.TEST -> TestScreen(viewModel = viewModel, onBack = { viewModel.closeSubScreen() })
                 StudySubScreen.LIBRARY -> LibraryScreen(viewModel = viewModel, onBack = { viewModel.closeSubScreen() })
+                StudySubScreen.POMODORO_TIMER -> PomodoroTimerScreen(viewModel = viewModel, onBack = { viewModel.closeSubScreen() })
                 StudySubScreen.NONE, StudySubScreen.ADMIN -> {
                     when (currentTab) {
                         MainTab.HOME -> DashboardScreen(viewModel = viewModel)

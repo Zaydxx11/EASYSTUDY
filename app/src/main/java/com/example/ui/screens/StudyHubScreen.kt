@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.ui.theme.AmberStreak
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.IndigoLight
@@ -121,6 +123,17 @@ fun StudyHubScreen(viewModel: StudyViewModel) {
                     gradient = listOf(RoseDoubt, IndigoPrimary),
                     badge = "Exam Ready",
                     onClick = { viewModel.openSubScreen(StudySubScreen.TEST) }
+                )
+            }
+
+            item {
+                StudyHubHeroCard(
+                    title = "Pomodoro Focus Timer",
+                    description = "Master deep study with 25m work & 5m break sessions, progress tracking, and cycle management.",
+                    icon = Icons.Default.Timer,
+                    gradient = listOf(RoseDoubt, AmberStreak),
+                    badge = "Focus Booster",
+                    onClick = { viewModel.openSubScreen(StudySubScreen.POMODORO_TIMER) }
                 )
             }
 

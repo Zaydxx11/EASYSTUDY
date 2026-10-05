@@ -29,19 +29,26 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.NoteAlt
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -92,16 +99,37 @@ fun DashboardScreen(viewModel: StudyViewModel) {
     val xp = profile?.xp ?: 620
     val level = profile?.level ?: 3
 
+    val isUpdateAvailable by viewModel.isUpdateAvailable.collectAsState()
+    val showUpdateSuccessDialog by viewModel.showUpdateSuccessDialog.collectAsState()
+
     val completedChapters = chapters.count { it.status == "Completed" }
     val totalChapters = chapters.size.coerceAtLeast(1)
     val syllabusProgress = (completedChapters * 100) / totalChapters
 
     val nextSchedule = schedules.firstOrNull { !it.isCompleted }
 
+    val pomodoroMode by viewModel.pomodoroMode.collectAsState()
+    val pomodoroTimeLeft by viewModel.pomodoroTimeLeft.collectAsState()
+    val isPomodoroRunning by viewModel.isPomodoroRunning.collectAsState()
+    val pomodoroCompletedSessions by viewModel.pomodoroCompletedSessions.collectAsState()
+    val pomodoroSubject by viewModel.pomodoroSelectedSubject.collectAsState()
+
+    val pMinutes = pomodoroTimeLeft / 60
+    val pSeconds = pomodoroTimeLeft % 60
+    val pTimeFormatted = String.format(java.util.Locale.getDefault(), "%02d:%02d", pMinutes, pSeconds)
+
     val featureCards = listOf(
         FeatureCardItem(
+            id = "pomodoro_timer",
+            title = "1. Pomodoro Focus Timer",
+            subtitle = "25m study blocks ($pomodoroCompletedSessions done today)",
+            icon = Icons.Default.Timer,
+            gradientColors = listOf(RoseDoubt, AmberStreak),
+            onClick = { viewModel.openSubScreen(StudySubScreen.POMODORO_TIMER) }
+        ),
+        FeatureCardItem(
             id = "ai_study",
-            title = "1. AI Study",
+            title = "2. AI Study",
             subtitle = "Smart study planner & deep concepts",
             icon = Icons.Default.AutoAwesome,
             gradientColors = listOf(IndigoPrimary, IndigoLight),
@@ -109,7 +137,7 @@ fun DashboardScreen(viewModel: StudyViewModel) {
         ),
         FeatureCardItem(
             id = "video_summarizer",
-            title = "2. Video Summarizer",
+            title = "3. Video Summarizer",
             subtitle = "Extract key concepts & formulas",
             icon = Icons.Default.PlayCircle,
             gradientColors = listOf(CyanAccent, IndigoPrimary),
@@ -195,6 +223,27 @@ fun DashboardScreen(viewModel: StudyViewModel) {
         )
     )
 
+    if (showUpdateSuccessDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.showUpdateSuccessDialog.value = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Account Upgraded to v1.1!")
+                }
+            },
+            text = {
+                Text("Your study account has been upgraded with the Pomodoro Study Focus Timer, complete 10/15/20 question quizzes, and +50 XP early updater bonus!")
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.showUpdateSuccessDialog.value = false }) {
+                    Text("Awesome!")
+                }
+            }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -252,6 +301,103 @@ fun DashboardScreen(viewModel: StudyViewModel) {
                             color = MaterialTheme.colorScheme.primary
                         )
                     )
+                }
+            }
+        }
+
+        // Account Update Request Banner for Existing Accounts
+        if (isUpdateAvailable) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("account_update_request_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "EasyStudy v1.1 Update Available",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "New academic features ready for your account",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "• 🍅 Pomodoro Focus Timer with 25m/5m cycles",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "• 📝 Full 10, 15, and 20 Question AI Quizzes & Tests",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "• ⚡ Offline study resources and speed sync",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.dismissUpdateBanner() },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Later")
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Button(
+                                onClick = { viewModel.applyUpdateAndSync() },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("Update & Sync (+50 XP)")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -412,6 +558,122 @@ fun DashboardScreen(viewModel: StudyViewModel) {
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // Pomodoro Live Study Widget
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.openSubScreen(StudySubScreen.POMODORO_TIMER) }
+                    .testTag("dashboard_pomodoro_widget"),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Brush.linearGradient(listOf(RoseDoubt, AmberStreak))),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Pomodoro Focus Timer",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "${pomodoroMode.displayName} • $pomodoroSubject",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = pTimeFormatted,
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            ),
+                            color = if (isPomodoroRunning) RoseDoubt else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$pomodoroCompletedSessions focus blocks finished (+${pomodoroCompletedSessions * 25} XP)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.resetPomodoro() },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Replay,
+                                    contentDescription = "Reset",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (isPomodoroRunning) viewModel.pausePomodoro() else viewModel.startPomodoro()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isPomodoroRunning) AmberStreak else RoseDoubt,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPomodoroRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isPomodoroRunning) "Pause" else "Focus",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -185,8 +185,9 @@ class AiService {
         numQuestions: Int,
         questionType: String
     ): List<QuizQuestion> = withContext(Dispatchers.IO) {
+        val targetCount = numQuestions.coerceIn(5, 30)
         val prompt = """
-            Generate $numQuestions $difficulty $questionType quiz questions for $subject Chapter: $chapter.
+            Generate exactly $targetCount $difficulty $questionType quiz questions for $subject Chapter: $chapter.
             Return ONLY a valid JSON array of objects.
             Format:
             [
@@ -199,15 +200,22 @@ class AiService {
                 "topic": "Subtopic name"
               }
             ]
+            Ensure there are exactly $targetCount questions in the array.
             No extra formatting or markdown backticks if possible, just the JSON array.
         """.trimIndent()
 
         val raw = callGeminiRaw(prompt)
         val parsed = parseQuizQuestions(raw)
-        if (parsed.isNotEmpty()) {
-            parsed
+        if (parsed.size >= targetCount) {
+            parsed.take(targetCount).mapIndexed { idx, q -> q.copy(id = idx + 1) }
         } else {
-            fallbackQuizQuestions(subject, chapter, difficulty, numQuestions)
+            val fallback = fallbackQuizQuestions(subject, chapter, difficulty, targetCount)
+            if (parsed.isNotEmpty()) {
+                val combined = (parsed + fallback).distinctBy { it.question }
+                combined.take(targetCount).mapIndexed { idx, q -> q.copy(id = idx + 1) }
+            } else {
+                fallback
+            }
         }
     }
 
@@ -217,8 +225,9 @@ class AiService {
         difficulty: String,
         numQuestions: Int
     ): List<TestQuestion> = withContext(Dispatchers.IO) {
+        val targetCount = numQuestions.coerceIn(5, 30)
         val prompt = """
-            Generate a full academic test with $numQuestions questions for $subject, Chapter: $chapter at $difficulty level.
+            Generate a full academic test with exactly $targetCount questions for $subject, Chapter: $chapter at $difficulty level.
             Include a mix of MCQs and Numerical / Concept questions.
             Return a JSON array:
             [
@@ -233,14 +242,21 @@ class AiService {
                 "topic": "Subtopic"
               }
             ]
+            Ensure there are exactly $targetCount items in the array.
         """.trimIndent()
 
         val raw = callGeminiRaw(prompt)
         val parsed = parseTestQuestions(raw)
-        if (parsed.isNotEmpty()) {
-            parsed
+        if (parsed.size >= targetCount) {
+            parsed.take(targetCount).mapIndexed { idx, q -> q.copy(id = idx + 1) }
         } else {
-            fallbackTestQuestions(subject, chapter, difficulty, numQuestions)
+            val fallback = fallbackTestQuestions(subject, chapter, difficulty, targetCount)
+            if (parsed.isNotEmpty()) {
+                val combined = (parsed + fallback).distinctBy { it.question }
+                combined.take(targetCount).mapIndexed { idx, q -> q.copy(id = idx + 1) }
+            } else {
+                fallback
+            }
         }
     }
 
@@ -603,49 +619,162 @@ class AiService {
         difficulty: String,
         num: Int
     ): List<QuizQuestion> {
-        val pool = listOf(
-            QuizQuestion(
-                id = 1,
-                question = "In $subject, what is the primary fundamental law governing $chapter?",
-                options = listOf("Law of Conservation", "Second Law of Thermodynamics", "Principle of Superposition", "Universal Gravitation"),
-                correctOptionIndex = 0,
-                explanation = "The Law of Conservation forms the backbone of all basic problems in $chapter.",
-                topic = "Fundamentals"
+        val count = num.coerceIn(5, 25)
+        val questions = mutableListOf<QuizQuestion>()
+
+        val templatePool = listOf(
+            Triple(
+                "In $subject, what is the primary fundamental law or theorem governing $chapter?",
+                listOf("Law of Conservation & Invariance", "Second Law of Thermodynamics", "Principle of Superposition", "Universal Gravitation"),
+                0 to "The Law of Conservation forms the theoretical backbone of problems in $chapter."
             ),
-            QuizQuestion(
-                id = 2,
-                question = "When applying standard formulas in $chapter, what SI unit is standard?",
-                options = listOf("Joules / Meters / Seconds", "Centimeters / Grams", "Inches / Pounds", "Arbitrary units"),
-                correctOptionIndex = 0,
-                explanation = "SI units (MKS system) must always be used for calculations to maintain physical consistency.",
-                topic = "Units & Dimensions"
+            Triple(
+                "When calculating standard numerical expressions in $chapter, which SI unit system must be maintained?",
+                listOf("Centimeter-Gram-Second (CGS)", "Meter-Kilogram-Second (MKS / SI)", "Foot-Pound-Second (FPS)", "Arbitrary laboratory units"),
+                1 to "The standard SI (MKS) system must be used uniformly to prevent unit mismatch errors."
             ),
-            QuizQuestion(
-                id = 3,
-                question = "What happens to the output variable if the independent input variable is doubled?",
-                options = listOf("It doubles if linear, or quadruples if quadratic", "It remains constant", "It drops to zero", "It reverses sign"),
-                correctOptionIndex = 0,
-                explanation = "Direct variation laws dictate that linear relationships double while quadratic relationships scale by four.",
-                topic = "Proportionality"
+            Triple(
+                "Under $difficulty conditions in $chapter, what occurs if the primary independent variable is doubled?",
+                listOf("It drops to zero immediately", "It remains completely unchanged", "It scales proportionally according to its governing exponent", "It inverts its sign"),
+                2 to "Direct proportionality dictates that quantities scale proportionally based on their linear or quadratic exponent."
             ),
-            QuizQuestion(
-                id = 4,
-                question = "Which common mistake should be strictly avoided when solving $chapter numericals?",
-                options = listOf("Forgetting unit conversions and sign conventions", "Writing too neatly", "Showing formula first", "Checking answers"),
-                correctOptionIndex = 0,
-                explanation = "Unit mismatches and dropped negative signs account for over 80% of lost marks in school/college exams.",
-                topic = "Exam Strategy"
+            Triple(
+                "Which high-frequency mistake should students strictly avoid when solving $chapter exam questions?",
+                listOf("Writing intermediate algebraic steps", "Omitting sign conventions and standard unit conversions", "Underlining the final calculated answer", "Drawing explanatory diagrams"),
+                1 to "Unit mismatches and dropped negative signs account for the vast majority of lost exam marks."
             ),
-            QuizQuestion(
-                id = 5,
-                question = "What is the graphical interpretation of the slope of a rate curve in $chapter?",
-                options = listOf("Instantaneous rate of change", "Total accumulated area", "Zero intercept", "Inverse curvature"),
-                correctOptionIndex = 0,
-                explanation = "The derivative or slope at any point physically represents the instantaneous rate of change.",
-                topic = "Graphs & Analysis"
+            Triple(
+                "In the graphical representation of $chapter, what does the instantaneous slope of the curve represent?",
+                listOf("Rate of change of the dependent variable", "Total accumulated area under the curve", "Initial boundary condition", "Total system resistance"),
+                0 to "The mathematical derivative or tangent slope physically signifies the instantaneous rate of change."
+            ),
+            Triple(
+                "What is the mathematical condition for equilibrium or steady state in $chapter?",
+                listOf("Net rate of variation equals zero", "Total energy equals infinity", "System variables oscillate indefinitely", "Input rate is double output rate"),
+                0 to "At steady state or dynamic equilibrium, the net time derivative of state variables is zero."
+            ),
+            Triple(
+                "Which assumption is strictly necessary when applying the standard ideal formula in $chapter?",
+                listOf("System must be operating at absolute zero", "External resistive losses and frictional dissipation are negligible", "The mass of the system fluctuates randomly", "Only applies to liquid states"),
+                1 to "Ideal formulations assume frictionless, isolated boundaries without dissipative parasitic losses."
+            ),
+            Triple(
+                "In $chapter, how is total work done or accumulated quantity determined from an applied curve?",
+                listOf("By taking the derivative at the maximum point", "By calculating the area under the curve using definite integration", "By multiplying initial and final intercepts", "By dividing maximum by minimum"),
+                1 to "Definite integration or the geometric area under the curve yields the total accumulated quantity."
+            ),
+            Triple(
+                "Why is dimensional analysis an effective strategy when verifying solutions in $chapter?",
+                listOf("It proves whether numerical constants are exact", "It guarantees algebraic sign correctness", "It confirms both sides of the equation share identical physical dimensions", "It eliminates the need for formulas"),
+                2 to "The principle of dimensional homogeneity requires both sides of a valid physical equation to share the exact same dimensions."
+            ),
+            Triple(
+                "How does temperature or environmental variation typically affect parameters in $chapter?",
+                listOf("It has zero effect on any parameter", "It alters molecular kinetic energy and modifies resistance/rate constants", "It instantly doubles all values", "It reverses the direction of field lines"),
+                1 to "Temperature variations directly shift kinetic energy and thermodynamic rate constants in accordance with standard laws."
+            ),
+            Triple(
+                "What is the ratio of final to initial magnitude if the parameter decreases by 20% in $chapter?",
+                listOf("1.25", "0.80", "0.20", "1.50"),
+                1 to "A 20% decrease leaves 1 - 0.20 = 0.80 of the original magnitude."
+            ),
+            Triple(
+                "Which device or method is standard for measuring the primary variable in $chapter experiments?",
+                listOf("Calibrated digital sensor / multi-meter / manometer", "Barometric hydrometer only", "Subjective visual inspection", "Spring balance only"),
+                0 to "Calibrated digital instrumentation ensures precision and reduces human parallax error."
+            ),
+            Triple(
+                "When two components in $chapter are connected in series, which quantity remains identical through both?",
+                listOf("Potential drop across each component", "Current / mass flow rate through the path", "Total thermal dissipation", "Cross-sectional resistance"),
+                1 to "Continuity requires that the same flux or current flows sequentially through series elements."
+            ),
+            Triple(
+                "What role does inertia or resistance play in the dynamic response of $chapter systems?",
+                listOf("It speeds up instantaneous response", "It opposes sudden changes in state or velocity", "It converts all energy into light", "It forces infinite acceleration"),
+                1 to "Inertia and impedance directly oppose rapid alterations in system state."
+            ),
+            Triple(
+                "In board examinations, how are marks allocated for multi-step numerical problems in $chapter?",
+                listOf("100% on the final number alone", "Step-marking: formula (30%), substitution (30%), final answer with units (40%)", "Only diagrams receive marks", "Random allocation"),
+                1 to "Board schemes award partial credit for stating governing formulas, correct substitutions, and correct units."
+            ),
+            Triple(
+                "What is the effect of doubling the radius on cross-sectional area in $chapter geometric calculations?",
+                listOf("Area doubles (2x)", "Area quadruples (4x)", "Area increases eightfold (8x)", "Area remains unchanged"),
+                1 to "Because area is proportional to the square of the radius (pi * r^2), doubling radius quadruples the area."
+            ),
+            Triple(
+                "Which of the following represents an extensive property in $chapter?",
+                listOf("Density", "Temperature", "Total Mass / Volume", "Specific Heat Capacity"),
+                2 to "Extensive properties depend directly on the extent or total quantity of matter in the system."
+            ),
+            Triple(
+                "When solving quadratic or second-order relationships in $chapter, how many solutions physically exist?",
+                listOf("Only one", "Up to two mathematical roots; physical feasibility selects the valid root", "Infinitely many", "Zero"),
+                1 to "Second-order equations yield two roots; physical constraints (e.g. non-negative time/mass) dictate the admissible solution."
+            ),
+            Triple(
+                "What distinguishes a scalar quantity from a vector quantity in $chapter?",
+                listOf("Scalars have direction but no magnitude", "Vectors require both magnitude and direction", "Scalars are only measured in meters", "Vectors are always positive"),
+                1 to "Vector quantities require both numerical magnitude and spatial direction to be fully characterized."
+            ),
+            Triple(
+                "In $difficulty exam problems for $chapter, what is the best first step when confronted with a complex question?",
+                listOf("Begin calculating random numbers immediately", "Write down given data, required unknown, and sketch a labeled diagram", "Skip directly to the answer key", "Guess option B"),
+                1 to "Identifying givens, defining target variables, and sketching diagrams establishes clarity and ensures full method marks."
+            ),
+            Triple(
+                "How does the inverse-square law apply to field strengths in $chapter?",
+                listOf("Intensity drops linearly with distance", "Intensity drops inversely as the square of the distance (1/r^2)", "Intensity increases with distance", "Intensity is constant"),
+                1 to "Geometric spreading in three dimensions causes radiant and field intensities to drop inversely with distance squared."
+            ),
+            Triple(
+                "What happens to the period of oscillation if frequency is tripled in $chapter periodic motions?",
+                listOf("Period is tripled (3T)", "Period is reduced to one-third (T/3)", "Period remains identical", "Period becomes zero"),
+                1 to "Period and frequency are inversely related: T = 1 / f, so tripling frequency reduces period to one-third."
+            ),
+            Triple(
+                "Which factor causes practical systems in $chapter to deviate from theoretically predicted maximum efficiency?",
+                listOf("Excessive mathematical rigor", "Thermodynamic heat dissipation, turbulence, and contact friction", "Atmospheric air pressure", "Gravitational constant"),
+                1 to "Entropy generation and frictional irreversibility prevent real-world systems from attaining 100% ideal efficiency."
+            ),
+            Triple(
+                "What is the significant figure convention when multiplying measurements in $chapter?",
+                listOf("Keep all digits shown on the calculator", "Round to the least number of significant figures present in the measured inputs", "Always round to exactly 1 decimal", "Add significant figures together"),
+                1 to "Precision cannot exceed the least precise measured input in multiplication and division operations."
+            ),
+            Triple(
+                "For comprehensive long-term retention of $chapter concepts, which active recall strategy is scientifically proven most effective?",
+                listOf("Re-reading highlighted textbook pages passively", "Spaced practice testing and Feynman technique explanation without notes", "Cramming before the exam", "Reading summaries only"),
+                1 to "Retrieval practice and active recall promote neuroplastic consolidation and durable conceptual memory."
             )
         )
-        return pool.take(num.coerceAtLeast(1).coerceAtMost(pool.size))
+
+        val topics = listOf(
+            "Core Axioms", "Formula Application", "Proportionality", "Exam Traps",
+            "Graphical Analysis", "Equilibrium", "Ideal Models", "Integration & Area",
+            "Dimensional Homogeneity", "Thermal Variations", "Scale Factors", "Instrumentation",
+            "Circuit/Flow Principles", "Inertial Response", "Board Marking Scheme", "Geometric Scaling",
+            "System Properties", "Mathematical Modeling", "Vector Analysis", "Problem Strategy",
+            "Field Intensity", "Periodic Motion", "Efficiency Limits", "Error Analysis", "Active Recall"
+        )
+
+        for (i in 0 until count) {
+            val template = templatePool[i % templatePool.size]
+            val topic = topics[i % topics.size]
+            questions.add(
+                QuizQuestion(
+                    id = i + 1,
+                    question = template.first,
+                    options = template.second,
+                    correctOptionIndex = template.third.first,
+                    explanation = template.third.second,
+                    topic = topic
+                )
+            )
+        }
+
+        return questions
     }
 
     private fun fallbackTestQuestions(
@@ -654,34 +783,108 @@ class AiService {
         difficulty: String,
         num: Int
     ): List<TestQuestion> {
+        val count = num.coerceIn(5, 25)
+        val questions = mutableListOf<TestQuestion>()
+
         val pool = listOf(
             TestQuestion(
                 id = 1,
-                question = "Define the core theorem of $chapter and state the two essential conditions required for its validity.",
+                question = "State the fundamental law of $chapter and list two key boundary assumptions required for its application.",
                 questionType = "Short Answer",
-                sampleAnswer = "The theorem states that in an isolated system with no external disturbances, the state function is invariant. Conditions: 1) Closed boundary, 2) Equilibrium conditions.",
+                sampleAnswer = "The theorem establishes that within an isolated closed system, the governing state parameter remains conserved. Key assumptions: 1) Negligible parasitic dissipation, 2) Static equilibrium.",
                 marks = 3,
-                topic = "Definitions"
+                topic = "Definitions & Axioms"
             ),
             TestQuestion(
                 id = 2,
-                question = "A system undergoing the process described in $chapter starts with value X = 10 and increases at a constant rate of 2.5 per unit time. Calculate its value after 4 time units.",
+                question = "A system undergoing the process in $chapter has initial parameter X0 = 12.0 units and increases at a constant rate k = 3.5 units/s. Calculate the value of X after 6.0 seconds.",
                 questionType = "Numerical",
-                sampleAnswer = "Given: Initial X0 = 10, Rate k = 2.5, Time t = 4. Using X(t) = X0 + k*t = 10 + (2.5 * 4) = 10 + 10 = 20 units.",
+                sampleAnswer = "Formula: X(t) = X0 + (k * t). Substituting values: X = 12.0 + (3.5 * 6.0) = 12.0 + 21.0 = 33.0 units. Units and step reasoning included.",
                 marks = 5,
-                topic = "Numericals"
+                topic = "Numerical Problem"
             ),
             TestQuestion(
                 id = 3,
-                question = "Which of the following best explains why the efficiency of this system is always strictly less than 100% in real life?",
+                question = "Which of the following factors is the primary cause of efficiency loss in $chapter systems under real conditions?",
                 questionType = "MCQ",
-                options = listOf("Due to internal frictional dissipation and heat loss", "Because of mathematical approximation", "It is always exactly 100%", "Due to incorrect measurement"),
+                options = listOf("Thermal dissipation and internal friction", "Mathematical rounding in formulas", "Constant ambient light", "Zero initial state"),
                 correctOptionIndex = 0,
-                sampleAnswer = "Frictional losses, resistance, and thermodynamic dissipation prevent 100% efficiency in physical reality.",
+                sampleAnswer = "Frictional resistance and thermodynamic heat dispersion prevent 100% ideal efficiency in physical systems.",
                 marks = 4,
-                topic = "Conceptual"
+                topic = "Conceptual Reasoning"
+            ),
+            TestQuestion(
+                id = 4,
+                question = "Derive the mathematical relationship relating input flux to output accumulation in $chapter, showing all intermediate steps.",
+                questionType = "Derivation",
+                sampleAnswer = "Start from conservation equation: Accumulation = Input - Output. Integrating with respect to time over boundary limits [0, t] gives the final governing algebraic expression.",
+                marks = 5,
+                topic = "Step Derivation"
+            ),
+            TestQuestion(
+                id = 5,
+                question = "Explain how graphical slope analysis is utilized to deduce rates in $chapter laboratory experiments.",
+                questionType = "Short Answer",
+                sampleAnswer = "By plotting the dependent variable on the y-axis against time on the x-axis, the tangent slope dy/dx at any coordinate yields instantaneous rate.",
+                marks = 3,
+                topic = "Experimental Analysis"
+            ),
+            TestQuestion(
+                id = 6,
+                question = "Calculate the percentage change in output if the primary radius parameter in $chapter is increased by 10%.",
+                questionType = "Numerical",
+                sampleAnswer = "Because the relationship scales with the square (r^2): New value = (1.10)^2 = 1.21. Percentage increase = (1.21 - 1.00) * 100% = 21% increase.",
+                marks = 4,
+                topic = "Scaling Calculation"
+            ),
+            TestQuestion(
+                id = 7,
+                question = "What is the physical significance of the zero-intercept in the characteristic plot of $chapter?",
+                questionType = "MCQ",
+                options = listOf("The dependent variable is zero when input is zero", "The system has infinite resistance", "Measurement error is 100%", "The plot is invalid"),
+                correctOptionIndex = 0,
+                sampleAnswer = "A zero intercept proves direct proportionality through the origin with no baseline offset.",
+                marks = 3,
+                topic = "Graphical Properties"
+            ),
+            TestQuestion(
+                id = 8,
+                question = "Contrast the behavior of the system under laminar/steady vs turbulent/unsteady flow conditions in $chapter.",
+                questionType = "Long Answer",
+                sampleAnswer = "Laminar/steady conditions exhibit predictable streamlines and linear resistance. Unsteady conditions introduce chaotic eddy dissipation and non-linear pressure drop.",
+                marks = 5,
+                topic = "Comparative Theory"
+            ),
+            TestQuestion(
+                id = 9,
+                question = "Determine the dimensional formula of the primary constant featured in the governing equation of $chapter.",
+                questionType = "Numerical",
+                sampleAnswer = "Using the principle of dimensional homogeneity: equate dimensions of left and right hand sides to isolate the constant: [M^1 L^2 T^-2].",
+                marks = 3,
+                topic = "Dimensions & Units"
+            ),
+            TestQuestion(
+                id = 10,
+                question = "Which safety precaution or experimental guideline is paramount when setting up $chapter laboratory apparatus?",
+                questionType = "MCQ",
+                options = listOf("Verifying zero-error on calibration gauges", "Ignoring circuit polarity", "Using uninsulated conductors", "Removing ground connections"),
+                correctOptionIndex = 0,
+                sampleAnswer = "Calibrating gauges and verifying zero-error avoids systematic measurement bias across all experimental trials.",
+                marks = 3,
+                topic = "Laboratory Practice"
             )
         )
-        return pool.take(num.coerceAtLeast(1).coerceAtMost(pool.size))
+
+        for (i in 0 until count) {
+            val base = pool[i % pool.size]
+            questions.add(
+                base.copy(
+                    id = i + 1,
+                    question = "Q${i + 1}: ${base.question}"
+                )
+            )
+        }
+
+        return questions
     }
 }

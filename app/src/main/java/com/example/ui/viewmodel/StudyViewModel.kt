@@ -21,6 +21,8 @@ import com.example.data.model.TestAttempt
 import com.example.data.model.UserProfile
 import com.example.data.model.VideoSummary
 import com.example.data.repository.StudyRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,7 +54,14 @@ enum class StudySubScreen {
     QUIZ,
     TEST,
     LIBRARY,
-    ADMIN
+    ADMIN,
+    POMODORO_TIMER
+}
+
+enum class PomodoroMode(val displayName: String, val defaultMinutes: Int) {
+    WORK("Focus Session", 25),
+    SHORT_BREAK("Short Break", 5),
+    LONG_BREAK("Long Break", 15)
 }
 
 class StudyViewModel(application: Application) : AndroidViewModel(application) {
@@ -155,7 +164,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     val quizSelectedSubject = MutableStateFlow("Mathematics")
     val quizSelectedChapter = MutableStateFlow("Real Numbers")
     val quizDifficulty = MutableStateFlow("Medium")
-    val quizNumQuestions = MutableStateFlow(5)
+    val quizNumQuestions = MutableStateFlow(10)
     val quizQuestionType = MutableStateFlow("Multiple Choice")
     val isGeneratingQuiz = MutableStateFlow(false)
     val isQuizActive = MutableStateFlow(false)
@@ -170,7 +179,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     val testSelectedSubject = MutableStateFlow("Physics")
     val testSelectedChapter = MutableStateFlow("Electricity")
     val testDifficulty = MutableStateFlow("Medium")
-    val testNumQuestions = MutableStateFlow(3)
+    val testNumQuestions = MutableStateFlow(10)
     val isGeneratingTest = MutableStateFlow(false)
     val isTestActive = MutableStateFlow(false)
     val testQuestionsList = MutableStateFlow<List<TestQuestion>>(emptyList())
@@ -190,6 +199,41 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             val p = repository.getUserProfileOnce()
             if (p != null && p.isOnboardingCompleted) {
                 prefs.edit().putBoolean("onboarding_completed", true).apply()
+                val lastSeenVer = prefs.getString("last_seen_app_version", "1.0")
+                if (lastSeenVer != "1.1") {
+                    isUpdateAvailable.value = true
+                }
+            }
+        }
+    }
+
+    // In-App Update System for existing accounts
+    val currentAppVersion = "1.1.0"
+    val isUpdateAvailable = MutableStateFlow(false)
+    val showUpdateSuccessDialog = MutableStateFlow(false)
+
+    fun dismissUpdateBanner() {
+        isUpdateAvailable.value = false
+    }
+
+    fun applyUpdateAndSync() {
+        viewModelScope.launch {
+            prefs.edit().putString("last_seen_app_version", "1.1").apply()
+            prefs.edit().putString("installed_version", "1.1").apply()
+            awardXp(50)
+            isUpdateAvailable.value = false
+            showUpdateSuccessDialog.value = true
+            refreshRecommendations()
+        }
+    }
+
+    fun checkForUpdatesManual() {
+        viewModelScope.launch {
+            val lastSeenVer = prefs.getString("last_seen_app_version", "1.0")
+            if (lastSeenVer != "1.1") {
+                isUpdateAvailable.value = true
+            } else {
+                showUpdateSuccessDialog.value = true
             }
         }
     }
@@ -727,6 +771,125 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
                 goals = obGoals.value
             )
             aiRecommendation.value = rec
+        }
+    }
+
+    // Pomodoro Timer State & Controls
+    private var pomodoroJob: Job? = null
+    val pomodoroMode = MutableStateFlow(PomodoroMode.WORK)
+    val pomodoroTimeLeft = MutableStateFlow(25 * 60)
+    val pomodoroTotalDuration = MutableStateFlow(25 * 60)
+    val isPomodoroRunning = MutableStateFlow(false)
+    val pomodoroCompletedSessions = MutableStateFlow(0)
+    val pomodoroCycleCount = MutableStateFlow(1)
+    val pomodoroSelectedSubject = MutableStateFlow("General Focus")
+    val workMinutes = MutableStateFlow(25)
+    val shortBreakMinutes = MutableStateFlow(5)
+    val longBreakMinutes = MutableStateFlow(15)
+
+    fun startPomodoro() {
+        if (isPomodoroRunning.value) return
+        isPomodoroRunning.value = true
+        pomodoroJob?.cancel()
+        pomodoroJob = viewModelScope.launch {
+            while (isPomodoroRunning.value && pomodoroTimeLeft.value > 0) {
+                delay(1000)
+                if (isPomodoroRunning.value) {
+                    pomodoroTimeLeft.value = (pomodoroTimeLeft.value - 1).coerceAtLeast(0)
+                }
+            }
+            if (isPomodoroRunning.value && pomodoroTimeLeft.value <= 0) {
+                onPomodoroSessionCompleted()
+            }
+        }
+    }
+
+    fun pausePomodoro() {
+        isPomodoroRunning.value = false
+        pomodoroJob?.cancel()
+    }
+
+    fun resetPomodoro() {
+        pausePomodoro()
+        val durationSec = when (pomodoroMode.value) {
+            PomodoroMode.WORK -> workMinutes.value * 60
+            PomodoroMode.SHORT_BREAK -> shortBreakMinutes.value * 60
+            PomodoroMode.LONG_BREAK -> longBreakMinutes.value * 60
+        }
+        pomodoroTimeLeft.value = durationSec
+        pomodoroTotalDuration.value = durationSec
+    }
+
+    fun skipPomodoroSession() {
+        pausePomodoro()
+        onPomodoroSessionCompleted()
+    }
+
+    fun switchPomodoroMode(mode: PomodoroMode) {
+        pausePomodoro()
+        pomodoroMode.value = mode
+        val durationSec = when (mode) {
+            PomodoroMode.WORK -> workMinutes.value * 60
+            PomodoroMode.SHORT_BREAK -> shortBreakMinutes.value * 60
+            PomodoroMode.LONG_BREAK -> longBreakMinutes.value * 60
+        }
+        pomodoroTimeLeft.value = durationSec
+        pomodoroTotalDuration.value = durationSec
+    }
+
+    fun setWorkDurationMinutes(minutes: Int) {
+        workMinutes.value = minutes
+        if (pomodoroMode.value == PomodoroMode.WORK && !isPomodoroRunning.value) {
+            pomodoroTimeLeft.value = minutes * 60
+            pomodoroTotalDuration.value = minutes * 60
+        }
+    }
+
+    fun setBreakDurationMinutes(minutes: Int, isLong: Boolean = false) {
+        if (isLong) {
+            longBreakMinutes.value = minutes
+            if (pomodoroMode.value == PomodoroMode.LONG_BREAK && !isPomodoroRunning.value) {
+                pomodoroTimeLeft.value = minutes * 60
+                pomodoroTotalDuration.value = minutes * 60
+            }
+        } else {
+            shortBreakMinutes.value = minutes
+            if (pomodoroMode.value == PomodoroMode.SHORT_BREAK && !isPomodoroRunning.value) {
+                pomodoroTimeLeft.value = minutes * 60
+                pomodoroTotalDuration.value = minutes * 60
+            }
+        }
+    }
+
+    fun setPomodoroSubject(subject: String) {
+        pomodoroSelectedSubject.value = subject
+    }
+
+    private fun onPomodoroSessionCompleted() {
+        isPomodoroRunning.value = false
+        pomodoroJob?.cancel()
+        viewModelScope.launch {
+            if (pomodoroMode.value == PomodoroMode.WORK) {
+                pomodoroCompletedSessions.value++
+                awardXp(25)
+                repository.logSession(
+                    StudySession(
+                        subject = pomodoroSelectedSubject.value,
+                        chapter = "Pomodoro Focus Block #${pomodoroCompletedSessions.value}",
+                        durationMinutes = workMinutes.value,
+                        notes = "Completed 100% deep focus block"
+                    )
+                )
+                if (pomodoroCycleCount.value >= 4) {
+                    pomodoroCycleCount.value = 1
+                    switchPomodoroMode(PomodoroMode.LONG_BREAK)
+                } else {
+                    pomodoroCycleCount.value++
+                    switchPomodoroMode(PomodoroMode.SHORT_BREAK)
+                }
+            } else {
+                switchPomodoroMode(PomodoroMode.WORK)
+            }
         }
     }
 }
